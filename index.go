@@ -19,7 +19,7 @@ import (
 //
 // Indexer 是用于定义索引的接口，索引用于高效查找 MemDB 表中的对象。
 // Indexer 还必须实现 SingleIndexer 或 MultiIndexer 中的一种。
-// Indexer 主要负责将索引 key 作为字节切片返回。
+// Indexer 主要负责将索引 key 作为字节切片 []byte 返回。
 type Indexer interface {
 	// FromArgs is called to build the exact index key from a list of arguments.
 	//
@@ -197,9 +197,11 @@ func (s *StringSliceFieldIndex) FromObject(obj interface{}) (bool, [][]byte, err
 		val += "\x00"
 		vals = append(vals, []byte(val))
 	}
+
 	if len(vals) == 0 {
 		return false, nil, nil
 	}
+
 	return true, vals, nil
 }
 
@@ -532,8 +534,7 @@ func (u *UUIDFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
 
 	fv := v.FieldByName(u.Field)
 	if !fv.IsValid() {
-		return false, nil,
-			fmt.Errorf("field '%s' for %#v is invalid", u.Field, obj)
+		return false, nil, fmt.Errorf("field '%s' for %#v is invalid", u.Field, obj)
 	}
 
 	val := fv.String()

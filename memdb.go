@@ -79,7 +79,7 @@ func (db *MemDB) Txn(write bool) *Txn {
 	if write {
 		db.writer.Lock()
 	}
-
+	// 创建事务对象
 	txn := &Txn{
 		db:      db,
 		write:   write,
@@ -88,7 +88,7 @@ func (db *MemDB) Txn(write bool) *Txn {
 	return txn
 }
 
-// Snapshot is used to capture a point-in-time snapshot  of the database that
+// Snapshot is used to capture a point-in-time snapshot of the database that
 // will not be affected by any write operations to the existing DB.
 //
 // If MemDB is storing reference-based values (pointers, maps, slices, etc.),
@@ -103,22 +103,28 @@ func (db *MemDB) Snapshot() *MemDB {
 	return clone
 }
 
-// initialize is used to setup the DB for use after creation. This should
-// be called only once after allocating a MemDB.
+// initialize is used to setup the DB for use after creation.
+// This should be called only once after allocating a MemDB.
+//
+// initialize 用于设置创建后使用的数据库。
+// 在分配一个 MemDB 之后，这个函数只能调用一次。
 func (db *MemDB) initialize() error {
 	root := db.getRoot()
-	for tName, tableSchema := range db.schema.Tables {
+	// 为每个 table.index 创建一个索引 radix tree 结构，类似于 mysql 的每个索引是一个 btree 。
+	for tableName, tableSchema := range db.schema.Tables {
 		for iName := range tableSchema.Indexes {
-			index := iradix.New()
-			path := indexPath(tName, iName)
-			root, _, _ = root.Insert(path, index)
+			// 每次 root.Insert 创建一个副本
+			root, _, _ = root.Insert(indexPath(tableName, iName), iradix.New())
 		}
 	}
+	// 覆盖 db.root
 	db.root = unsafe.Pointer(root)
 	return nil
 }
 
 // indexPath returns the path from the root to the given table index
+//
+// 表名.索引
 func indexPath(table, index string) []byte {
 	return []byte(table + "." + index)
 }

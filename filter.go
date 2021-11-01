@@ -6,8 +6,6 @@ package memdb
 // FilterFunc 是一个函数，它获取迭代器的结果并返回是否应过滤。
 type FilterFunc func(interface{}) bool
 
-
-
 // FilterIterator is used to wrap a ResultIterator and apply a filter over it.
 //
 // FilterIterator 用于封装 ResultIterator 并在其上应用过滤器。
@@ -21,9 +19,6 @@ type FilterIterator struct {
 	// iter 是被封装的迭代器。
 	iter ResultIterator
 }
-
-
-
 
 // NewFilterIterator wraps a ResultIterator.
 // The filter function is applied to each value returned by a call to iter.Next.

@@ -3,7 +3,7 @@ package memdb
 // Changes describes a set of mutations to memDB tables performed during a
 // transaction.
 //
-// Changes 描述了在事务期间对 memDB 表执行的一组变更。
+// Changes 描述了在一个事务期间对 memDB 表执行的一组变更。
 type Changes []Change
 
 // Change describes a mutation to an object in a table.
@@ -18,8 +18,8 @@ type Change struct {
 	// de-duplicate multiple updates of the same object in the same transaction
 	// but we don't expose this implementation detail to the consumer.
 	//
-	// primaryKey 存储主索引中的原始键值，这样我们可以在同一事务中消除同一对象的多个更新，
-	// 但我们不会向使用者公开此实现细节。
+	// primaryKey 存储主键索引中的原始键值，以便我们可以在同一事务中对同一对象进行多次更新，
+	// 但不向使用者公开这个实现细节。
 	primaryKey []byte
 }
 

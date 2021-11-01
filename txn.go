@@ -75,6 +75,8 @@ func (txn *Txn) readableIndex(table, index string) *iradix.Txn {
 
 // writableIndex returns a transaction usable for modifying the
 // given index in a table.
+//
+// 获取 table.index 对应的索引对象 radix tree ，并启动其上的读写事务 radix txn 。
 func (txn *Txn) writableIndex(table, index string) *iradix.Txn {
 
 	if txn.modified == nil {
@@ -89,8 +91,11 @@ func (txn *Txn) writableIndex(table, index string) *iradix.Txn {
 	}
 
 	// Start a new transaction
-	path := indexPath(table, index)
-	raw, _ := txn.rootTxn.Get(path)
+
+	// 查询 table.index 的 tree 索引结构
+	raw, _ := txn.rootTxn.Get(indexPath(table, index))
+
+	// 创建 tree 上的事务对象
 	indexTxn := raw.(*iradix.Tree).Txn()
 
 	// If we are the primary DB, enable mutation tracking. Snapshots should
@@ -99,6 +104,7 @@ func (txn *Txn) writableIndex(table, index string) *iradix.Txn {
 	indexTxn.TrackMutate(txn.db.primary)
 
 	// Keep this open for the duration of the txn
+	// 保存事务对象
 	txn.modified[key] = indexTxn
 	return indexTxn
 }
@@ -218,10 +224,10 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 	// We do the update by deleting the current object and inserting the new object.
 	//
 	// 在更新时，主键对象已经存在，通过先删除再插入来执行更新。
-	for name, indexSchema := range tableSchema.Indexes {
+	for indexName, indexSchema := range tableSchema.Indexes {
 
-		//
-		indexTxn := txn.writableIndex(table, name)
+		// 创建 table.indexName 的事务
+		indexTxn := txn.writableIndex(table, indexName)
 
 		// Determine the new index value
 		var (
@@ -240,7 +246,7 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			ok, vals, err = indexer.FromObject(obj)
 		}
 		if err != nil {
-			return fmt.Errorf("failed to build index '%s': %v", name, err)
+			return fmt.Errorf("failed to build index '%s': %v", indexName, err)
 		}
 
 		// Handle non-unique index by computing a unique index.
@@ -270,7 +276,7 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 				okExist, valsExist, err = indexer.FromObject(existing)
 			}
 			if err != nil {
-				return fmt.Errorf("failed to build index '%s': %v", name, err)
+				return fmt.Errorf("failed to build index '%s': %v", indexName, err)
 			}
 
 			// 从索引中删除这些 valsExist
@@ -304,7 +310,7 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			if indexSchema.AllowMissing {
 				continue
 			} else {
-				return fmt.Errorf("missing value for index '%s'", name)
+				return fmt.Errorf("missing value for index '%s'", indexName)
 			}
 		}
 
@@ -318,10 +324,10 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 	///
 	if txn.changes != nil {
 		txn.changes = append(txn.changes, Change{
-			Table:      table,
-			Before:     existing, // might be nil on a create
-			After:      obj,
-			primaryKey: idVal,
+			Table:      table,		// 表
+			Before:     existing, 	// 修改前的值，might be nil on a create
+			After:      obj,		// 修改后的值
+			primaryKey: idVal,		// 主键
 		})
 	}
 
