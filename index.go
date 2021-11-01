@@ -16,17 +16,28 @@ import (
 //
 // Indexers are primarily responsible for returning the lookup key as
 // a byte slice. The byte slice is the key data in the underlying data storage.
+//
+// Indexer 是用于定义索引的接口，索引用于高效查找 MemDB 表中的对象。
+// Indexer 还必须实现 SingleIndexer 或 MultiIndexer 中的一种。
+// Indexer 主要负责将索引 key 作为字节切片返回。
 type Indexer interface {
 	// FromArgs is called to build the exact index key from a list of arguments.
+	//
+	// FromArgs 从参数列表构建索引键。
 	FromArgs(args ...interface{}) ([]byte, error)
 }
 
 // SingleIndexer is an interface used for defining indexes that generate a
 // single value per object
+//
+// SingleIndexer 是一个接口，用于为每个对象生成单值索引。
 type SingleIndexer interface {
 	// FromObject extracts the index value from an object. The return values
 	// are whether the index value was found, the index value, and any error
 	// while extracting the index value, respectively.
+	//
+	// FromObject 从对象中提取索引值。
+	// 返回值分别是: 是否找到索引值、索引值和提取索引值时的任何错误。
 	FromObject(raw interface{}) (bool, []byte, error)
 }
 
@@ -35,29 +46,38 @@ type SingleIndexer interface {
 // pointing to the same object.
 //
 // For example, an index that extracts the first and last name of a person
-// and allows lookup based on eitherd would be a MultiIndexer. The FromObject
+// and allows lookup based on either would be a MultiIndexer. The FromObject
 // of this example would split the first and last name and return both as
 // values.
+//
+//
+// MultiIndexer 是一个接口，用于为每个对象生成多值索引。
+//
+// 例如，提取一个人的名字和姓氏并允许基于二者进行查找，则 FromObject 将拆分名字和姓氏，并将两者返回。
 type MultiIndexer interface {
-	// FromObject extracts index values from an object. The return values
-	// are the same as a SingleIndexer except there can be multiple index
-	// values.
+	// FromObject extracts index values from an object.
+	// The return values are the same as a SingleIndexer except there can be multiple index values.
 	FromObject(raw interface{}) (bool, [][]byte, error)
 }
 
 // PrefixIndexer is an optional interface on top of an Indexer that allows
 // indexes to support prefix-based iteration.
+//
+// 前缀索引
+//
 type PrefixIndexer interface {
 	// PrefixFromArgs is the same as FromArgs for an Indexer except that
 	// the index value returned should return all prefix-matched values.
+	//
+	//
 	PrefixFromArgs(args ...interface{}) ([]byte, error)
 }
 
 // StringFieldIndex is used to extract a field from an object
 // using reflection and builds an index on that field.
 type StringFieldIndex struct {
-	Field     string
-	Lowercase bool
+	Field     string	// 字段
+	Lowercase bool		// 转成小写
 }
 
 func (s *StringFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
@@ -67,42 +87,57 @@ func (s *StringFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
 	fv := v.FieldByName(s.Field)
 	isPtr := fv.Kind() == reflect.Ptr
 	fv = reflect.Indirect(fv)
+
+	// 字段不存在，报错
 	if !isPtr && !fv.IsValid() {
 		return false, nil,
 			fmt.Errorf("field '%s' for %#v is invalid %v ", s.Field, obj, isPtr)
 	}
 
+	// 如果是 nil 指针，则返回 ""
 	if isPtr && !fv.IsValid() {
 		val := ""
 		return false, []byte(val), nil
 	}
 
+	// 空串 (???)
 	val := fv.String()
 	if val == "" {
 		return false, nil, nil
 	}
 
+	// 转成小写
 	if s.Lowercase {
 		val = strings.ToLower(val)
 	}
 
 	// Add the null character as a terminator
+	//
+	// 追加分隔符
 	val += "\x00"
 	return true, []byte(val), nil
 }
 
 func (s *StringFieldIndex) FromArgs(args ...interface{}) ([]byte, error) {
+	// 只接受一个参数
 	if len(args) != 1 {
 		return nil, fmt.Errorf("must provide only a single argument")
 	}
+
+	// 参数类型必须是 string
 	arg, ok := args[0].(string)
 	if !ok {
 		return nil, fmt.Errorf("argument must be a string: %#v", args[0])
 	}
+
+	// 装换成小写
 	if s.Lowercase {
 		arg = strings.ToLower(arg)
 	}
+
 	// Add the null character as a terminator
+	//
+	// 追加分隔符
 	arg += "\x00"
 	return []byte(arg), nil
 }
@@ -114,6 +149,8 @@ func (s *StringFieldIndex) PrefixFromArgs(args ...interface{}) ([]byte, error) {
 	}
 
 	// Strip the null terminator, the rest is a prefix
+	//
+	// 删除分隔符
 	n := len(val)
 	if n > 0 {
 		return val[:n-1], nil
@@ -130,13 +167,13 @@ type StringSliceFieldIndex struct {
 }
 
 func (s *StringSliceFieldIndex) FromObject(obj interface{}) (bool, [][]byte, error) {
+
 	v := reflect.ValueOf(obj)
 	v = reflect.Indirect(v) // Dereference the pointer if any
 
 	fv := v.FieldByName(s.Field)
 	if !fv.IsValid() {
-		return false, nil,
-			fmt.Errorf("field '%s' for %#v is invalid", s.Field, obj)
+		return false, nil, fmt.Errorf("field '%s' for %#v is invalid", s.Field, obj)
 	}
 
 	if fv.Kind() != reflect.Slice || fv.Type().Elem().Kind() != reflect.String {
@@ -146,6 +183,7 @@ func (s *StringSliceFieldIndex) FromObject(obj interface{}) (bool, [][]byte, err
 	length := fv.Len()
 	vals := make([][]byte, 0, length)
 	for i := 0; i < fv.Len(); i++ {
+
 		val := fv.Index(i).String()
 		if val == "" {
 			continue
@@ -252,6 +290,7 @@ func (s *StringMapFieldIndex) FromObject(obj interface{}) (bool, [][]byte, error
 	return true, vals, nil
 }
 
+// FromArgs
 // WARNING: Because of a bug in FromObject, this function will never return
 // a value when using the single-argument version.
 func (s *StringMapFieldIndex) FromArgs(args ...interface{}) ([]byte, error) {
@@ -368,11 +407,12 @@ func (u *UintFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
 
 	fv := v.FieldByName(u.Field)
 	if !fv.IsValid() {
-		return false, nil,
-			fmt.Errorf("field '%s' for %#v is invalid", u.Field, obj)
+		return false, nil, fmt.Errorf("field '%s' for %#v is invalid", u.Field, obj)
 	}
 
 	// Check the type
+	//
+	// 检查是否是 Unit 类型
 	k := fv.Kind()
 	size, ok := IsUintType(k)
 	if !ok {
@@ -381,7 +421,7 @@ func (u *UintFieldIndex) FromObject(obj interface{}) (bool, []byte, error) {
 
 	// Get the value and encode it
 	val := fv.Uint()
-	buf := encodeUInt(val, size)
+	buf := encodeUInt(val, size) // Convert UInt to Bytes
 
 	return true, buf, nil
 }
@@ -408,9 +448,9 @@ func (u *UintFieldIndex) FromArgs(args ...interface{}) ([]byte, error) {
 	return buf, nil
 }
 
+// Convert UInt to Bytes
 func encodeUInt(val uint64, size int) []byte {
 	buf := make([]byte, size)
-
 	switch size {
 	case 1:
 		buf[0] = uint8(val)
@@ -421,7 +461,6 @@ func encodeUInt(val uint64, size int) []byte {
 	case 8:
 		binary.BigEndian.PutUint64(buf, val)
 	}
-
 	return buf
 }
 
@@ -534,8 +573,7 @@ func (u *UUIDFieldIndex) PrefixFromArgs(args ...interface{}) ([]byte, error) {
 	case []byte:
 		return arg, nil
 	default:
-		return nil,
-			fmt.Errorf("argument must be a string or byte slice: %#v", args[0])
+		return nil, fmt.Errorf("argument must be a string or byte slice: %#v", args[0])
 	}
 }
 
@@ -584,8 +622,7 @@ func (f *FieldSetIndex) FromObject(obj interface{}) (bool, []byte, error) {
 
 	fv := v.FieldByName(f.Field)
 	if !fv.IsValid() {
-		return false, nil,
-			fmt.Errorf("field '%s' for %#v is invalid", f.Field, obj)
+		return false, nil, fmt.Errorf("field '%s' for %#v is invalid", f.Field, obj)
 	}
 
 	if fv.Interface() == reflect.Zero(fv.Type()).Interface() {
@@ -602,12 +639,15 @@ func (f *FieldSetIndex) FromArgs(args ...interface{}) ([]byte, error) {
 // ConditionalIndex builds an index based on a condition specified by a passed
 // user function. This function may examine the passed object and return a
 // boolean to encapsulate an arbitrarily complex conditional.
+//
+// 条件索引
 type ConditionalIndex struct {
 	Conditional ConditionalIndexFunc
 }
 
-// ConditionalIndexFunc is the required function interface for a
-// ConditionalIndex.
+// ConditionalIndexFunc is the required function interface for a ConditionalIndex.
+//
+// 条件索引函数
 type ConditionalIndexFunc func(obj interface{}) (bool, error)
 
 func (c *ConditionalIndex) FromObject(obj interface{}) (bool, []byte, error) {
@@ -617,10 +657,12 @@ func (c *ConditionalIndex) FromObject(obj interface{}) (bool, []byte, error) {
 		return false, nil, fmt.Errorf("ConditionalIndexFunc(%#v) failed: %v", obj, err)
 	}
 
+	// true
 	if res {
 		return true, []byte{1}, nil
 	}
 
+	// false
 	return true, []byte{0}, nil
 }
 
@@ -636,12 +678,17 @@ func fromBoolArgs(args []interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("must provide only a single argument")
 	}
 
-	if val, ok := args[0].(bool); !ok {
+	val, ok := args[0].(bool)
+	if !ok {
 		return nil, fmt.Errorf("argument must be a boolean type: %#v", args[0])
-	} else if val {
+	}
+
+	// true
+	if val {
 		return []byte{1}, nil
 	}
 
+	// false
 	return []byte{0}, nil
 }
 

@@ -23,6 +23,18 @@ import (
 // are stored directly in MemDB. It remains unsafe to modify inserted objects
 // even after they've been deleted from MemDB since there may still be older
 // snapshots of the DB being read from other goroutines.
+//
+//
+// MemDB 是一个内存数据库，提供 ACID 中的原子性、一致性和与隔离性；
+// MemDB 不提供持久性，因为它是内存中的数据库。
+//
+// MemDB 提供了一个表抽象，用于存储具有多个索引的对象（行）。
+// 数据库使用不可变基树来提供事务和 MVCC 。
+//
+// 插入到 MemDB 的对象不会被复制。
+// 由于对象直接存储在 MemDB 中，因此在插入对象后不进行原地修改 **非常重要** 。
+// 即使是已从 MemDB 中删除的对象，修改这些对象仍然是不安全的，因为可能有旧的数据库快照正在被其他 goroutine 读取。
+
 type MemDB struct {
 	schema  *DBSchema
 	root    unsafe.Pointer // *iradix.Tree underneath
@@ -45,6 +57,8 @@ func NewMemDB(schema *DBSchema) (*MemDB, error) {
 		root:    unsafe.Pointer(iradix.New()),
 		primary: true,
 	}
+
+	// Init MemDB
 	if err := db.initialize(); err != nil {
 		return nil, err
 	}
@@ -61,9 +75,11 @@ func (db *MemDB) getRoot() *iradix.Tree {
 // Txn is used to start a new transaction in either read or write mode.
 // There can only be a single concurrent writer, but any number of readers.
 func (db *MemDB) Txn(write bool) *Txn {
+	// 写事务加锁
 	if write {
 		db.writer.Lock()
 	}
+
 	txn := &Txn{
 		db:      db,
 		write:   write,

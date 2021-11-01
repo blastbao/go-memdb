@@ -18,7 +18,6 @@ func (w WatchSet) Add(watchCh <-chan struct{}) {
 	if w == nil {
 		return
 	}
-
 	if _, ok := w[watchCh]; !ok {
 		w[watchCh] = struct{}{}
 	}

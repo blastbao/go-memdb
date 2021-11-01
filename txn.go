@@ -33,8 +33,8 @@ type Txn struct {
 	rootTxn *iradix.Txn
 	after   []func()
 
-	// changes is used to track the changes performed during the transaction. If
-	// it is nil at transaction start then changes are not tracked.
+	// changes is used to track the changes performed during the transaction.
+	// If it is nil at transaction start then changes are not tracked.
 	changes Changes
 
 	modified map[tableIndex]*iradix.Txn
@@ -56,6 +56,7 @@ func (txn *Txn) TrackChanges() {
 // table. If the transaction is a write transaction with modifications, a clone of the
 // modified index will be returned.
 func (txn *Txn) readableIndex(table, index string) *iradix.Txn {
+
 	// Look for existing transaction
 	if txn.write && txn.modified != nil {
 		key := tableIndex{table, index}
@@ -75,6 +76,7 @@ func (txn *Txn) readableIndex(table, index string) *iradix.Txn {
 // writableIndex returns a transaction usable for modifying the
 // given index in a table.
 func (txn *Txn) writableIndex(table, index string) *iradix.Txn {
+
 	if txn.modified == nil {
 		txn.modified = make(map[tableIndex]*iradix.Txn)
 	}
@@ -104,6 +106,7 @@ func (txn *Txn) writableIndex(table, index string) *iradix.Txn {
 // Abort is used to cancel this transaction.
 // This is a noop for read transactions.
 func (txn *Txn) Abort() {
+
 	// Noop for a read transaction
 	if !txn.write {
 		return
@@ -126,7 +129,10 @@ func (txn *Txn) Abort() {
 // Commit is used to finalize this transaction.
 // This is a noop for read transactions.
 func (txn *Txn) Commit() {
+
 	// Noop for a read transaction
+	//
+	// 读事务直接 return
 	if !txn.write {
 		return
 	}
@@ -176,6 +182,7 @@ func (txn *Txn) Commit() {
 // than a value updated in-place. Modifying values in-place that are already
 // inserted into MemDB is not supported behavior.
 func (txn *Txn) Insert(table string, obj interface{}) error {
+	// 是否可写
 	if !txn.write {
 		return fmt.Errorf("cannot insert in read-only transaction")
 	}
@@ -189,22 +196,31 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 	// Get the primary ID of the object
 	idSchema := tableSchema.Indexes[id]
 	idIndexer := idSchema.Indexer.(SingleIndexer)
+
+	// 提取主键
 	ok, idVal, err := idIndexer.FromObject(obj)
 	if err != nil {
 		return fmt.Errorf("failed to build primary index: %v", err)
 	}
+
+	// 无主键
 	if !ok {
 		return fmt.Errorf("object missing primary index")
 	}
 
 	// Lookup the object by ID first, to see if this is an update
+	//
+	// 检查主键是否已经存在
 	idTxn := txn.writableIndex(table, id)
 	existing, update := idTxn.Get(idVal)
 
-	// On an update, there is an existing object with the given
-	// primary ID. We do the update by deleting the current object
-	// and inserting the new object.
+	// On an update, there is an existing object with the given primary ID.
+	// We do the update by deleting the current object and inserting the new object.
+	//
+	// 在更新时，主键对象已经存在，通过先删除再插入来执行更新。
 	for name, indexSchema := range tableSchema.Indexes {
+
+		//
 		indexTxn := txn.writableIndex(table, name)
 
 		// Determine the new index value
@@ -213,6 +229,8 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			vals [][]byte
 			err  error
 		)
+
+		// 从 obj 中提取索引值 vals
 		switch indexer := indexSchema.Indexer.(type) {
 		case SingleIndexer:
 			var val []byte
@@ -226,8 +244,7 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 		}
 
 		// Handle non-unique index by computing a unique index.
-		// This is done by appending the primary key which must
-		// be unique anyways.
+		// This is done by appending the primary key which must be unique anyways.
 		if ok && !indexSchema.Unique {
 			for i := range vals {
 				vals[i] = append(vals[i], idVal...)
@@ -236,11 +253,14 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 
 		// Handle the update by deleting from the index first
 		if update {
+
 			var (
 				okExist   bool
 				valsExist [][]byte
 				err       error
 			)
+
+			// 从 existing 中提取索引值 valsExist
 			switch indexer := indexSchema.Indexer.(type) {
 			case SingleIndexer:
 				var valExist []byte
@@ -252,11 +272,16 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			if err != nil {
 				return fmt.Errorf("failed to build index '%s': %v", name, err)
 			}
+
+			// 从索引中删除这些 valsExist
 			if okExist {
 				for i, valExist := range valsExist {
+
 					// Handle non-unique index by computing a unique index.
 					// This is done by appending the primary key which must
 					// be unique anyways.
+					//
+					//
 					if !indexSchema.Unique {
 						valExist = append(valExist, idVal...)
 					}
@@ -264,6 +289,8 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 					// If we are writing to the same index with the same value,
 					// we can avoid the delete as the insert will overwrite the
 					// value anyways.
+					//
+					// 如果是相同的值，可以不必删除，由插入来覆盖。
 					if i >= len(vals) || !bytes.Equal(valExist, vals[i]) {
 						indexTxn.Delete(valExist)
 					}
@@ -271,8 +298,8 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			}
 		}
 
-		// If there is no index value, either this is an error or an expected
-		// case and we can skip updating
+		// If there is no index value,
+		// either this is an error or an expected case and we can skip updating
 		if !ok {
 			if indexSchema.AllowMissing {
 				continue
@@ -286,6 +313,9 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			indexTxn.Insert(val, obj)
 		}
 	}
+
+
+	///
 	if txn.changes != nil {
 		txn.changes = append(txn.changes, Change{
 			Table:      table,
@@ -294,6 +324,7 @@ func (txn *Txn) Insert(table string, obj interface{}) error {
 			primaryKey: idVal,
 		})
 	}
+
 	return nil
 }
 
@@ -330,6 +361,8 @@ func (txn *Txn) Delete(table string, obj interface{}) error {
 
 	// Remove the object from all the indexes
 	for name, indexSchema := range tableSchema.Indexes {
+
+		//
 		indexTxn := txn.writableIndex(table, name)
 
 		// Handle the update by deleting from the index first
